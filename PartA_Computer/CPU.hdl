@@ -1,0 +1,41 @@
+// CPU.hdl  --  Hack CPU
+CHIP CPU {
+    IN  inM[16], instruction[16], reset;
+    OUT outM[16], writeM, addressM[15], pc[15];
+
+    PARTS:
+    // instruction[15] = 0 -> A-instruction, 1 -> C-instruction
+    Not(in=instruction[15], out=isA);
+
+    // A register: gets instruction (A-instr) or ALU output (C-instr)
+    Mux16(a=aluOut, b=instruction, sel=isA, out=aIn);
+    Or(a=isA, b=instruction[5], out=loadA);          // A-instr, or C-instr with d1
+    ARegister(in=aIn, load=loadA, out=aOut, out[0..14]=addressM);
+
+    // D register: C-instruction with d2
+    And(a=instruction[15], b=instruction[4], out=loadD);
+    DRegister(in=aluOut, load=loadD, out=dOut);
+
+    // ALU: y input is A or M, chosen by the a-bit
+    Mux16(a=aOut, b=inM, sel=instruction[12], out=yIn);
+    ALU(x=dOut, y=yIn,
+        zx=instruction[11], nx=instruction[10],
+        zy=instruction[9],  ny=instruction[8],
+        f=instruction[7],   no=instruction[6],
+        out=aluOut, out=outM, zr=zr, ng=ng);
+
+    // write to memory: C-instruction with d3
+    And(a=instruction[15], b=instruction[3], out=writeM);
+
+    // jump logic: j1 (<0) = bit2, j2 (=0) = bit1, j3 (>0) = bit0
+    Or(a=zr, b=ng, out=zrOrNg);
+    Not(in=zrOrNg, out=pos);
+    And(a=instruction[2], b=ng,  out=jlt);
+    And(a=instruction[1], b=zr,  out=jeq);
+    And(a=instruction[0], b=pos, out=jgt);
+    Or(a=jlt, b=jeq, out=jle);
+    Or(a=jle, b=jgt, out=jumpCond);
+    And(a=instruction[15], b=jumpCond, out=jump);    // only for C-instructions
+
+    PC(in=aOut, load=jump, inc=true, reset=reset, out[0..14]=pc);
+}
